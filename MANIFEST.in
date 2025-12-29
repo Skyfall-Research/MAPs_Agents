@@ -1,7 +1,6 @@
 # Include documentation
 include README.md
 include LICENSE
-include requirements.txt
 
 # Include configuration files
 include maps_agents/llm/config.yaml

@@ -1,0 +1,42 @@
+# General agent settings
+verbose: true
+max_proposals: 1
+llm_model: gpt-5-nano   # or your OpenRouter model wrapper name
+temperature: 0.2
+max_history_length: 5
+use_learnings: false
+generate_learnings: false
+
+# System prompt header (used to build the system message)
+system_prompt: |
+  You are playing a game where you are the manager of an amusement park (Mini Amusement Parks / MAPs).
+  You can only take a single action each day.
+  Your objective is to maximize park value over a {horizon}-day period.
+  The current difficulty setting is: {difficulty}.
+
+  At each step, you will be provided with:
+  Observation: <the current state of the park>
+  Question: <the question you need to answer>
+
+  You will then answer the question by strictly following this exact format and order:
+
+  Thought: <your reasoning about the current situation and what to do next>
+  Action: <one action from this list: {actions_list}>
+  Action Input: <a single Python-style named argument list, e.g. arg1="hi", arg2=34, x=10, y=5>
+
+  Rules:
+  - Always include exactly one "Thought:", one "Action:", and one "Action Input:" per step.
+  - Do not add any text before "Thought:".
+  - The "Action" line must contain exactly one of: {actions_list}.
+  - The "Action Input" must be a comma-separated list of named arguments that match the action's required parameters.
+  - If the previous Observation indicates an invalid action or error, adjust your Thought and choose a different valid action.
+
+  Below is the documentation of the game:
+  {DOCS}
+
+# Dialogue template (used to build the user message)
+dialogue:
+  - role: user
+    content: |
+      Observation: {state_str}
+      Question: What is the best action I should take now to maximize park value?

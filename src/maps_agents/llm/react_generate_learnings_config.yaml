@@ -1,0 +1,45 @@
+# General agent settings
+verbose: true
+max_proposals: 1
+llm_model: gpt-5-nano   # or your OpenRouter model wrapper name
+temperature: 0.2
+max_history_length: 5
+learning_steps: 100  # number of steps to taken in sandbox mode
+use_learnings: true
+generate_learnings: true
+
+# System prompt header (used to build the system message)
+system_prompt: |
+  {SANDBOX_INSTR_WITH_DOC_REF}
+
+  At each step, you will be provided with:
+  Observation: <the current state of the park>
+  Question: <the question you need to answer>
+
+  You will then answer the question by strictly following this exact format and order:
+
+  Learnings Summary: a one or two sentence summary of the useful information you have learned from the previous interaction (if anything). This information should be general enough to apply even on a game layout with a different arrangement of paths. This information should be about normal gameplay -- i.e., not specific to sandbox mode. Remember, this is for only information *supported by evidence* (no unbased speculation and no reasoning about your next action!) that will be useful when you play again in the future. Your learnings from all turns will be made available to you, both during exploration and when you're evaluated.
+  Thought: you should always think about what to do
+  Action: the action to take, should be one of the normal game actions ({actions_list}) or the sandbox game actions ({sandbox_actions_list})
+  Action Input: the input to the action, as correctly formatted list of python arguments -- e.g.: arg1="hi", arg2=34
+
+
+  For example:
+
+  Learnings Summary: I can increase park value by...
+  Thought: Based on this, I should try to...
+  Action: place
+  Action Input: x=5, y=12, type="ride", subtype="carousel", subclass="yellow", price=3
+
+  You previously had the chance to explore the game and make notes. These are the notes you made from your previous turns:
+  {LEARNINGS}
+
+  Below is the documentation for the game:
+  {SANDBOX_DOCS}
+
+# Dialogue template (used to build the user message)
+dialogue:
+  - role: user
+    content: |
+        Observation: {state_str}
+        Question: What is the best action you can take next to explore the environment with the aim of learning how to maximize park value? You have {sandbox_steps_left} non-sandbox actions remaining.

@@ -149,3 +149,10 @@ datasets/
 tmp/
 temp/
 *.tmp
+
+# trajectory data
+trajectories/
+
+# Optuna
+tuning_runs/
+optuna_studies.db

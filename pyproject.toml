@@ -50,12 +50,17 @@ rl = [
     "gymnasium>=0.28.0",
     "torch>=1.10.0",
     "matplotlib>=3.3.0",
+    "optuna>=3.0.0",
+    "optuna-dashboard>=0.10.0",
 ]
 llm = [
     "llm-model-cost>=0.1.0",
 ]
 eval = [
     "map-py>=0.1.0",
+]
+vlm = [
+    "Pillow>=9.0.0",
 ]
 dev = [
     "pytest>=7.0.0",
@@ -70,8 +75,11 @@ all = [
     "gymnasium>=0.28.0",
     "torch>=1.10.0",
     "matplotlib>=3.3.0",
+    "optuna>=3.0.0",
+    "optuna-dashboard>=0.10.0",
     "llm-model-cost>=0.1.0",
     "map-py>=0.1.0",
+    "Pillow>=9.0.0",
 ]
 
 [project.urls]

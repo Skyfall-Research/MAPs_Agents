@@ -1,0 +1,47 @@
+In Easy mode you can place attractions from the start, and placing a cheap ride on an empty tile adjacent to a path starts guest interaction and provides data on park value and rating dynamics.
+In Easy mode, you can start studying park value dynamics by placing inexpensive rides adjacent to existing paths; early data comes from how added capacity and excitement affect guest flow and rating.
+In Easy mode, placing inexpensive rides adjacent to paths can start guest interaction and generate data on park value and rating without large upfront costs.
+In Easy mode, placing inexpensive rides adjacent to existing paths starts guest interaction and provides data on how added capacity affects park value and rating.
+In Easy mode, adding inexpensive rides adjacent to existing paths starts guest interaction and helps reveal how small increases in capacity influence park value and rating.
+In Easy mode, adding a new ride near an existing path—especially a different type or subclass—helps reveal how capacity and excitement affect park value and rating.
+In Easy mode, adding small rides near existing paths provides data on how extra capacity and proximity to paths affect park value and rating.
+In Easy mode, placing a low-cost drink shop on a tile adjacent to a path can help observe how providing thirst relief and inventory affects guest flow and park value.
+In Easy mode, adding diverse attractions near existing paths helps reveal how capacity and variety influence park value and guest flow.
+In Easy mode, placing simple rides near existing paths provides data on how adding capacity and proximity to paths influences park value and guest flow.
+In Easy mode, adding a low-cost carousel near an existing path can help observe how diversification and proximity to paths influence park value and guest flow.
+In Easy mode, placing cheap rides adjacent to existing paths helps test how added capacity near paths affects guest flow and park value without large upfront costs.
+In Easy mode, adding low-cost rides near existing paths helps reveal how increased capacity and proximity to paths affect guest flow and park value.
+In Easy mode, adding another low-cost ride adjacent to an existing path continues to test how increased capacity near paths influences guest flow and park value.
+In Easy mode, continuing to place cheap rides near existing paths helps observe how additional capacity near paths influences guest flow and park value.
+In Easy mode, adding inexpensive carousels near existing paths helps test how small capacity increases affect guest flow and park value without large upfront costs.
+In Easy mode, adding inexpensive carousels adjacent to paths helps reveal how small capacity increases near paths influence guest flow and park value.
+Continuing to add inexpensive carousels on tiles adjacent to existing paths helps test how small increases in capacity near paths influence guest flow and park value without large upfront costs.
+In Easy mode, continuing to add inexpensive carousels adjacent to existing paths helps test how small increases in capacity near paths influence guest flow and park value.
+In Easy mode, adding inexpensive carousels adjacent to existing paths continues to provide data on how small capacity increases near paths affect guest flow and park value.
+In Easy mode, adding inexpensive carousels adjacent to paths continues to help observe how small capacity increases near paths affect guest flow and park value.
+Continuing to place carousels adjacent to paths provides more data on how small increases in capacity near path nodes influence guest flow and park value without large upfront costs.
+In Easy mode, placing path-adjacent rides helps test how adding capacity near existing paths influences guest flow and park value, using inexpensive, quick-to-build options.
+In Easy mode, adding inexpensive carousels adjacent to existing paths continues to help observe how small increases in capacity near path nodes influence guest flow and park value.
+In Easy mode, placing inexpensive rides adjacent to paths continues to provide data on how small increases in capacity near path nodes influence guest flow and park value, without large upfront costs.
+In Easy mode, placing new attractions adjacent to existing paths and diversifying ride types near paths helps collect data on how capacity and variety near paths influence guest flow and park value.
+In Easy mode, placing inexpensive, path-adjacent shops (like cheap drink shops) provides a low-cost way to observe how additional amenities influence guest flow and park value.
+In Easy mode, adding inexpensive path-adjacent drink shops provides a low-cost way to gauge how new amenities influence guest flow and park value, aiding exploration of pricing/restocking effects.
+In Easy mode, placing a small, inexpensive ride on a tile adjacent to an existing path is a valid way to observe how added capacity near paths influences guest flow and park value, guiding exploration of layout improvements.
+In Easy mode, adding inexpensive, path-adjacent shops provides a low-cost way to observe how new amenities influence guest flow and park value, aiding exploration of layout and pricing effects.
+In Easy mode, adding inexpensive, path-adjacent shops continues to be a low-cost way to observe how amenities near paths affect guest flow and park value.
+In Easy mode, letting a day pass after placing path-adjacent amenities helps reveal their impact on guest behavior and park value, informing future placement decisions.
+In Easy mode, adding a cheap ride adjacent to a path can help observe how increased capacity near paths affects guest flow and park value, supporting empirical learning of layout effects.
+In Easy mode, placing a small, path-adjacent ride can help observe how added capacity near paths influences guest flow and park value, aiding empirical learning of layout effects.
+In Easy mode, adding a low-cost ride adjacent to a path provides a straightforward way to observe how capacity and proximity to paths influence guest flow and park value.
+In Easy mode, adding a small ride adjacent to a path provides a straightforward way to observe how added capacity near paths influences guest flow and park value.
+In Easy mode, placing a cheap, path-adjacent ride continues to be a straightforward way to observe how added capacity near paths influences guest flow and park value.
+In Easy mode, cheap path-adjacent rides provide a straightforward way to observe how added capacity near paths influences guest flow and park value; all attractions are available from the start, enabling quick experimentation.
+In Easy mode, adding small, path-adjacent rides continues to be an effective way to observe how added capacity near paths influences guest flow and park value.
+In Easy mode, placing small, path-adjacent rides continues to be a straightforward way to observe how added capacity near paths influences guest flow and park value.
+In Easy mode, adding small, path-adjacent rides continues to be an effective way to observe how added capacity near paths influences guest flow and park value.
+In Easy mode, continuing to add small, path-adjacent rides provides a straightforward way to observe how incremental capacity affects guest flow and park value, without requiring expensive investments.
+In Easy mode, adding small, path-adjacent rides is an effective, low-cost way to study how incremental capacity affects guest flow and park value, enabling rapid experimentation.
+In Easy mode, adding small, path-adjacent rides continues to be a simple and effective way to study how incremental capacity affects guest flow and park value.
+In Easy mode, adding small, path-adjacent rides remains an effective way to study how incremental capacity influences guest flow and park value without large upfront costs.
+In Easy mode, continuing to add small, path-adjacent rides remains a reliable way to observe how incremental capacity affects guest flow and park value without large expenditures.
+In Easy mode, continuing to add low-cost, path-adjacent rides provides a straightforward way to observe how incremental capacity impacts guest flow and park value.

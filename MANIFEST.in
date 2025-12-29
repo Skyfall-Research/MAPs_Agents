@@ -1,0 +1,19 @@
+# Include documentation
+include README.md
+include LICENSE
+include requirements.txt
+
+# Include configuration files
+include maps_agents/llm/config.yaml
+
+# Include package data
+recursive-include maps_agents *.yaml
+recursive-include maps_agents *.yml
+recursive-include maps_agents *.json
+
+# Exclude development files
+exclude .gitignore
+exclude .editorconfig
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude * .DS_Store

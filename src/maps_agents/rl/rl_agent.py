@@ -130,7 +130,7 @@ class RLAgent(AbstractAgent):
         final_model_path = train_agent(
             difficulty=difficulty,
             mode=mode,
-            total_timesteps=25000,
+            total_timesteps=500000,
             save_path=base_path,
             training_layouts=training_layouts
         )

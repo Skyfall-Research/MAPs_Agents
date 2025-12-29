@@ -3,22 +3,10 @@ from maps_agents import ReactAgent, ReactVLMAgent, RLAgent
 from maps_agents.eval.evaluator import evaluate_agent
 
 AGENT_MAP = {
-    'react': (ReactAgent,
-    'react_vlm': (ReactVLMAgent,
-    'rl': (RLAgent,
+    'react': (ReactAgent, 'src/maps_agents/llm/react_generate_learnings_config.yaml'),
+    'react_vlm': (ReactVLMAgent, 'src/maps_agents/vlm/vlm_config.yaml'),
+    'rl': (RLAgent, 'src/maps_agents/rl/config.yaml'),
 }
-
-
-
-def get_default_config(agent_type: str) -> str:
-    """Get the default config path for an agent type."""
-    config_map = {
-        'react': 'src/maps_agents/llm/react_generate_learnings_config.yaml',
-        'react_vlm': 'src/maps_agents/vlm/vlm_config.yaml',
-        'rl': 'src/maps_agents/rl/config.yaml',
-    }
-    return config_map.get(agent_type.lower(), config_map['react'])
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -93,16 +81,10 @@ def main():
     
     args = parser.parse_args()
     
-    # Get agent constructor
-    agent_constructor = get_agent_constructor(args.agent)
-    
-    # Get config path (use default if not provided)
-    config_path = args.config if args.config is not None else get_default_config(args.agent)
-    
     # Run evaluation
     evaluate_agent(
-        agent_constructor=agent_constructor,
-        agent_config_path=config_path,
+        agent_constructor=AGENT_MAP[args.agent][0].get_agent,
+        agent_config_path=AGENT_MAP[args.agent][1],
         samples_per_start=args.samples_per_start,
         input_layouts=args.input_layouts,
         difficulty=args.difficulty,

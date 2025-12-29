@@ -168,7 +168,8 @@ def make_env(host: str, port: str, difficulty: str = "easy", mode: str = "full",
             difficulty=difficulty,
             observation_type="gym_simple" if mode == "simple" else "gym",  # Use simple or full gym format
             negative_reward_on_invalid_action=False if eval_mode else True,
-            layout=selected_layout  # Use selected layout instead of hardcoded "ribs"
+            layout=selected_layout,  # Use selected layout instead of hardcoded "ribs"
+            new_seed_on_reset=True if (not eval_mode) else False,
         )
         env = Monitor(env)
         env.reset(seed=seed)
@@ -220,7 +221,7 @@ def train_agent(difficulty: str = "easy",
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
 
     # Create evaluation environment (use first test layout for periodic eval during training)
-    eval_env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42, eval_mode=True,
+    eval_env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=123, eval_mode=True,
                                      layouts=test_layouts, env_idx=0)])
     eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False)
 

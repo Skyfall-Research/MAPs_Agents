@@ -18,6 +18,7 @@ This package provides various AI agent implementations (Reinforcement Learning, 
 
 The package requires the [MAPs](https://github.com/Skyfall-Research/MAPs) environment. Install it first using instructions in its README.md
 
+### Install MAPs Agents
 ```bash
 cd MAPs_Agents
 pip install -e .
@@ -40,6 +41,12 @@ pip install maps-agents[dev]
 ```
 
 ## Quick Start
+
+All agents in this package will require a park server to be running. Within the MAPs repo, run:  
+
+```bash
+node map_backend/server.js --vis &
+```
 
 ### Using RL Agents
 
@@ -74,7 +81,6 @@ python -m maps_agents.rl.tune_hyperparameters \
        --n-trials 100 \
        --n-jobs 4
 ```
-
 
 
 ### Using LLM Agents
@@ -132,29 +138,8 @@ maps_agents/
 ├── llm/                  # Large Language Model agents
 │   ├── react.py                # ReAct agent implementation
 │   └── config.yaml             # LLM configuration
-└── vlm/                  # Vision-Language Model agents (future)
+└── vlm/                  # Vision-Language Model agent
 ```
-
-## Agent Types
-
-### RL Agents (`SB3Agent`)
-
-- Uses Stable-Baselines3 PPO algorithm
-- Two modes:
-  - **Simple**: 5 actions, vector observations only (faster training)
-  - **Full**: 11 actions, grid + vector observations (better performance)
-- Hierarchical action space for efficient learning
-- Pre-trained models can be loaded for inference
-
-### LLM Agents (`ReactAgent`)
-
-- ReAct (Reasoning + Acting) pattern
-- Uses OpenRouter API for various LLM backends
-- Maintains conversation history for context
-- Tracks token usage and costs
-- Configurable temperature and model selection
-
-## Configuration
 
 ### Agent Configuration
 
@@ -162,20 +147,6 @@ Agents can be configured via:
 - Constructor parameters
 - YAML config files (for LLM agents)
 - EvalConfig objects (for evaluation)
-
-### Evaluation Configuration
-
-```python
-from maps_agents import EvalConfig
-
-config = EvalConfig(
-    run_idx=0,
-    observation_type="gym",  # or "gym_simple", "pydantic", "raw"
-    difficulty="easy",       # or "medium", "hard"
-    horizon=250,            # max steps per episode
-    logging_id="experiment_1"
-)
-```
 
 ## Observation Modes
 
@@ -186,60 +157,11 @@ config = EvalConfig(
 | `pydantic` | Structured Pydantic models | LLM agents, type safety |
 | `raw` | Raw dictionary format | Debugging, custom agents |
 
-## Contributing
-
-Contributions are welcome! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pytest`)
-5. Format code (`black .`)
-6. Commit changes (`git commit -m 'Add amazing feature'`)
-7. Push to branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-## Development
-
-### Setting up Development Environment
-
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/MAPs_Agents.git
-cd MAPs_Agents
-
-# Install in editable mode with dev dependencies
-pip install -e .[dev]
-
-# Run tests
-pytest
-
-# Format code
-black .
-
-# Type checking
-mypy maps_agents
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=maps_agents --cov-report=html
-
-# Run specific test file
-pytest tests/test_sb3_agent.py
-```
-
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Citation
-
 If you use this package in your research, please cite:
 
 ```bibtex
@@ -257,18 +179,4 @@ If you use this package in your research, please cite:
 - Uses [OpenRouter](https://openrouter.ai/) for LLM API access
 - Integrates with the MAPs environment (`map-py` package)
 
-## Contact
 
-For questions, issues, or contributions, please:
-- Open an issue on GitHub
-- Contact the maintainers at [email]
-
-## Roadmap
-
-- [ ] Vision-Language Model (VLM) agents
-- [ ] Multi-agent coordination
-- [ ] Curriculum learning for RL agents
-- [ ] More LLM backends (direct API support)
-- [ ] Offline RL training
-- [ ] Web UI for agent visualization
-- [ ] Benchmark suite with leaderboard

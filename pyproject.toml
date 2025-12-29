@@ -83,9 +83,9 @@ all = [
 ]
 
 [project.urls]
-Homepage = TODO
-Documentation = TODO
-Repository = TODO
+Homepage = "TODO"
+Documentation = "TODO"
+Repository = "TODO"
 
 [tool.setuptools.packages.find]
 where = ["src"]

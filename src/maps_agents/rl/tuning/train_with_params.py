@@ -12,8 +12,54 @@ from stable_baselines3.common.callbacks import EvalCallback
 
 from maps_agents.rl.train_agent import make_env, get_layouts_for_variant
 from maps_agents.rl import HierarchicalMultiDiscretePolicy, SimpleHierarchicalPolicy
-from maps_agents.rl.tuning.objective import TrialEvalCallback
 
+
+class TrialEvalCallback(EvalCallback):
+    """
+    Callback for Optuna that reports intermediate values and prunes trials.
+    """
+    def __init__(
+        self,
+        eval_env,
+        trial: Trial,
+        n_eval_episodes: int = 5,
+        eval_freq: int = 10000,
+        deterministic: bool = False,
+        verbose: int = 0,
+    ):
+        super().__init__(
+            eval_env=eval_env,
+            n_eval_episodes=n_eval_episodes,
+            eval_freq=eval_freq,
+            deterministic=deterministic,
+            verbose=verbose,
+        )
+        self.trial = trial
+        self.eval_idx = 0
+        self.is_pruned = False
+
+    def _on_step(self) -> bool:
+        """
+        Called on every environment step.
+        Reports intermediate values to Optuna and handles pruning.
+        """
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            # Trigger evaluation
+            super()._on_step()
+
+            # Report mean reward to Optuna
+            if len(self.evaluations_results) > 0:
+                mean_reward = float(np.mean(self.evaluations_results[-1]))
+                self.trial.report(mean_reward, self.eval_idx)
+                self.eval_idx += 1
+
+                # Check if trial should be pruned
+                if self.trial.should_prune():
+                    self.is_pruned = True
+                    return False  # Stop training
+
+        return True
+        
 
 def train_with_hyperparams(
     agent_type: str,

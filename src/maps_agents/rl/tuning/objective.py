@@ -8,6 +8,8 @@ from typing import Dict, Any, Optional
 import numpy as np
 from stable_baselines3.common.callbacks import EvalCallback
 
+from maps_agents.rl.tuning.train_with_params import train_with_hyperparams
+
 
 class TrialEvalCallback(EvalCallback):
     """
@@ -19,7 +21,7 @@ class TrialEvalCallback(EvalCallback):
         trial: Trial,
         n_eval_episodes: int = 5,
         eval_freq: int = 10000,
-        deterministic: bool = True,
+        deterministic: bool = False,
         verbose: int = 0,
     ):
         super().__init__(
@@ -131,13 +133,12 @@ def objective(
     # Optional: target_kl can prevent catastrophic updates (works well with pruning)
     target_kl = trial.suggest_categorical("target_kl", [None, 0.01, 0.02, 0.05])
 
+    # Optional: clip_range_vf for value function clipping
+    clip_range_vf = trial.suggest_categorical("clip_range_vf", [None, 0.5, 1.0, 2.0])
 
     try:
         # Trial-specific save path
         trial_save_path = f"{save_path}/trial_{trial.number}"
-
-        from maps_agents.rl.tuning.train_with_params import train_with_hyperparams
-
         model, eval_callback = train_with_hyperparams(
             agent_type="PPO",
             host=host,
@@ -161,6 +162,7 @@ def objective(
             max_grad_norm=max_grad_norm,
             target_kl=target_kl,
             clip_range_vf=clip_range_vf,
+            n_eval_episodes=n_eval_episodes,
             # Trial for pruning
             trial=trial,
         )
@@ -169,20 +171,15 @@ def objective(
         if getattr(eval_callback, "is_pruned", False):
             raise optuna.TrialPruned()
 
-        # Final evaluation on test layouts
-        from maps_agents.rl.train_agent import get_layouts_for_variant
-        _, test_layouts = get_layouts_for_variant(training_layouts)
-
-        from maps_agents.rl.tuning.evaluate import evaluate_on_layouts
-        mean_reward, std_reward = evaluate_on_layouts(
-            model=model,
-            test_layouts=test_layouts,
-            n_episodes=n_eval_episodes,
-            host=host,
-            port=port,
-            difficulty=difficulty,
-            mode=mode,
-        )
+        # Use final evaluation results from callback
+        # (already evaluated on test_layouts with n_eval_episodes episodes)
+        if len(eval_callback.evaluations_results) > 0:
+            mean_reward = float(np.mean(eval_callback.evaluations_results[-1]))
+            std_reward = float(np.std(eval_callback.evaluations_results[-1]))
+        else:
+            # Fallback if no evaluations were performed
+            mean_reward = -float("inf")
+            std_reward = 0.0
 
         # Log attrs for analysis
         trial.set_user_attr("std_reward", float(std_reward))

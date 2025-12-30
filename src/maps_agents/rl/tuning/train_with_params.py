@@ -6,7 +6,7 @@ from typing import Optional, Tuple
 import os
 from optuna.trial import Trial
 from stable_baselines3 import PPO
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, SubprocVecEnv
 from stable_baselines3.common.utils import set_random_seed
 from stable_baselines3.common.callbacks import EvalCallback
 
@@ -39,6 +39,9 @@ def train_with_hyperparams(
     # Other parameters
     max_grad_norm: float = 0.5,
     vf_coef: float = 0.5,
+    target_kl: Optional[float] = None,
+    clip_range_vf: Optional[float] = None,
+    n_eval_episodes: int = 10,
 ) -> Tuple[PPO, EvalCallback]:
     """
     Train PPO agent with specified hyperparameters.
@@ -60,18 +63,18 @@ def train_with_hyperparams(
 
     # Create training environments
     if n_envs == 1:
-        env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42, layouts=train_layouts, env_idx=0)])
+        env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42, layouts=train_layouts, env_idx=i) for i in range(len(train_layouts))])
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
     else:
-        env = DummyVecEnv([
-            make_env(host, port, difficulty, mode, seed=42 + i, layouts=train_layouts, env_idx=i)
+        env = SubprocVecEnv([
+            make_env(host, port, difficulty, mode, seed=(42 + i * 100), layouts=train_layouts, env_idx=i)
             for i in range(n_envs)
         ])
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
 
     # Create evaluation environment
     eval_env = DummyVecEnv([
-        make_env(host, port, difficulty, mode, seed=100, eval_mode=True, layouts=test_layouts, env_idx=0)
+        make_env(host, port, difficulty, mode, seed=100, eval_mode=True, layouts=test_layouts, env_idx=i) for i in range(len(test_layouts))
     ])
     eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False)
 
@@ -80,9 +83,9 @@ def train_with_hyperparams(
         eval_callback = TrialEvalCallback(
             eval_env=eval_env,
             trial=trial,
-            n_eval_episodes=5,
-            eval_freq=max(10000 // n_envs, 1),
-            deterministic=True,
+            n_eval_episodes=n_eval_episodes,
+            eval_freq=max(25000 // n_envs, 1),
+            deterministic=False,
             verbose=0
         )
     else:
@@ -91,8 +94,8 @@ def train_with_hyperparams(
             best_model_save_path=f"{save_path}/best_model",
             log_path=f"{save_path}/logs",
             eval_freq=max(10000 // n_envs, 1),
-            deterministic=True,
-            n_eval_episodes=5
+            deterministic=False,
+            n_eval_episodes=n_eval_episodes,
         )
 
     # Initialize PPO model with hyperparameters
@@ -106,9 +109,11 @@ def train_with_hyperparams(
         gamma=gamma,
         gae_lambda=gae_lambda,
         clip_range=clip_range,
+        clip_range_vf=clip_range_vf,
         ent_coef=ent_coef,
         max_grad_norm=max_grad_norm,
         vf_coef=vf_coef,
+        target_kl=target_kl,
         verbose=0,  # Quiet during tuning
         tensorboard_log=f"{save_path}/tensorboard",
         policy_kwargs={"difficulty": difficulty}

@@ -113,13 +113,13 @@ def main():
     parser.add_argument(
         "--n-timesteps",
         type=int,
-        default=5000,
+        default=250000,
         help="Training timesteps per trial (reduced for faster tuning)"
     )
     parser.add_argument(
         "--n-envs",
         type=int,
-        default=4,
+        default=25,
         help="Number of parallel environments per trial"
     )
     parser.add_argument(

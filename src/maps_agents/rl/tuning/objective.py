@@ -66,7 +66,7 @@ def objective(
     n_eval_episodes: int = 10,
     n_timesteps: int = 500_000,  # shorter for tuning
     # NOTE: we now tune n_envs inside the objective; keep this arg only as a fallback/default
-    n_envs: int = 10,
+    n_envs: int = 25,
     host: str = "localhost",
     port: str = "3000",
     save_path: str = "./tuning_runs",
@@ -109,7 +109,7 @@ def objective(
     # -------------------------
     # 4) Sample PPO hyperparameters (tighter, better-behaved ranges)
     # -------------------------
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
+    learning_rate = trial.suggest_categorical("learning_rate", [1e-5, 3e-5, 1e-4, 3e-4, 1e-3])
 
     # Epochs: avoid very large values
     n_epochs = trial.suggest_categorical("n_epochs", [2, 3, 5, 10])

@@ -24,22 +24,6 @@ cd MAPs_Agents
 pip install -e .
 ```
 
-### Install with Specific Features
-
-```bash
-# Install with RL dependencies only
-pip install maps-agents[rl]
-
-# Install with LLM dependencies only
-pip install maps-agents[llm]
-
-# Install with all dependencies
-pip install maps-agents[all]
-
-# Install for development
-pip install maps-agents[dev]
-```
-
 ## Quick Start
 
 All agents in this package will require a park server to be running. Within the MAPs repo, run:  
@@ -68,10 +52,10 @@ Agents can be tuned a Bayesian hyperparameter optimization using Optuna [Akiba e
 
 ```bash
 # Train a simple mode agent
-python -m maps_agents.rl.train --mode simple --timesteps 1000000
+python -m maps_agents.rl.train_agent --mode simple --timesteps 1000000
 
 # Train a full mode agent
-python -m maps_agents.rl.train --mode full --timesteps 2000000 
+python -m maps_agents.rl.train_agent --mode full --timesteps 2000000 
 
 # Tune an agent
 python -m maps_agents.rl.tune_hyperparameters \
@@ -79,7 +63,7 @@ python -m maps_agents.rl.tune_hyperparameters \
        --mode full \
        --difficulty easy \
        --n-trials 100 \
-       --n-jobs 4
+       --n-timesteps 100000
 ```
 
 
@@ -89,15 +73,9 @@ python -m maps_agents.rl.tune_hyperparameters \
 from maps_agents import ReactAgent
 
 # Initialize ReAct agent
-agent = ReactAgent(
-    model="anthropic/claude-3.5-sonnet",
-    api_key="your-openrouter-key",
-    horizon=250,
-    difficulty="easy",
-    actions_list=["place", "move", "remove", "modify", "wait"],
-    config_path="llm/config.yaml"
-)
-
+config_path = "src/maps_agents/llm/react_config.yaml"
+eval_config = EvalConfig(run_idx=0, difficulty='easy')
+agent = ReactAgent.get_agent(config_path, eval_config)
 # Generate action using LLM reasoning
 action_str = agent.act(game_response, run_id=0)
 ```
@@ -124,7 +102,7 @@ print(f"Total cost: {results['total_cost']}")
 maps_agents/
 ├── __init__.py           # Main package exports
 ├── eval/                 # Evaluation framework
-│   ├── agent_interface.py       # AbstractAgent base class
+│   ├── agent_interface.py      # AbstractAgent base class
 │   ├── evaluator.py            # Agent evaluation logic
 │   ├── resource_interface.py   # Resource tracking (tokens, compute)
 │   ├── state_interface.py      # Game state representations
@@ -133,29 +111,13 @@ maps_agents/
 │   ├── sb3_agent.py            # SB3Agent for inference
 │   ├── sb3_test.py             # Training script
 │   └── policies/               # Custom SB3 policies
-│       ├── hierarchical_multidiscrete_policy.py
-│       └── simple_hierarchical_policy.py
+│       ├── ...
 ├── llm/                  # Large Language Model agents
 │   ├── react.py                # ReAct agent implementation
 │   └── config.yaml             # LLM configuration
 └── vlm/                  # Vision-Language Model agent
 ```
 
-### Agent Configuration
-
-Agents can be configured via:
-- Constructor parameters
-- YAML config files (for LLM agents)
-- EvalConfig objects (for evaluation)
-
-## Observation Modes
-
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| `gym` | Full gym observation (grid + vectors) | RL training with spatial awareness |
-| `gym_simple` | Simplified vectors only | Faster RL training |
-| `pydantic` | Structured Pydantic models | LLM agents, type safety |
-| `raw` | Raw dictionary format | Debugging, custom agents |
 
 ## License
 
@@ -165,11 +127,14 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 If you use this package in your research, please cite:
 
 ```bibtex
-@software{maps_agents,
-  title = {MAPs Agents: Agent Implementations for Mini Amusement Park Simulator},
-  author = {MAPs Team},
-  year = {2024},
-  url = {https://github.com/yourusername/MAPs_Agents}
+@misc{arocaouellette2025miniamusementparksmaps,
+      title={Mini Amusement Parks (MAPs): A Testbed for Modelling Business Decisions}, 
+      author={Stéphane Aroca-Ouellette and Ian Berlot-Attwell and Panagiotis Lymperopoulos and Abhiramon Rajasekharan and Tongqi Zhu and Herin Kang and Kaheer Suleman and Sam Pasupalak},
+      year={2025},
+      eprint={2511.15830},
+      archivePrefix={arXiv},
+      primaryClass={cs.AI},
+      url={https://arxiv.org/abs/2511.15830}, 
 }
 ```
 

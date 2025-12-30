@@ -57,59 +57,85 @@ class TrialEvalCallback(EvalCallback):
 
 
 def objective(
-    trial: Trial,
+    trial: "Trial",
     training_layouts: str = "all",
     mode: str = "full",
     difficulty: str = "easy",
     n_eval_episodes: int = 10,
-    n_timesteps: int = 500000,  # Shorter for tuning
-    n_envs: int = 4,  # Parallel envs for faster training
+    n_timesteps: int = 500_000,  # shorter for tuning
+    # NOTE: we now tune n_envs inside the objective; keep this arg only as a fallback/default
+    n_envs: int = 10,
     host: str = "localhost",
     port: str = "3000",
-    save_path: str = "./tuning_runs"
+    save_path: str = "./tuning_runs",
 ) -> float:
     """
-    Objective function for Optuna hyperparameter optimization.
-
-    Args:
-        trial: Optuna trial object
-        training_layouts: Training variant to use
-        mode: "simple" or "full"
-        difficulty: Game difficulty
-        n_eval_episodes: Episodes for final evaluation
-        n_timesteps: Total training timesteps (reduced for tuning)
-        n_envs: Number of parallel environments
-        host: Game server host
-        port: Game server port
-        save_path: Directory to save trial models
-
-    Returns:
-        Mean episode reward on test layouts (metric to maximize)
+    Optuna objective for PPO tuning with:
+      - tuned n_envs (CPU-heavy stepping)
+      - conditional n_steps based on n_envs
+      - derived batch_size from num_minibatches and total rollout size (N = n_steps * n_envs)
+      - tightened, more PPO-sane ranges for gamma/epochs/clip/entropy
+      - optional stability knobs (vf_coef, max_grad_norm, target_kl)
     """
-    # Sample hyperparameters
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
-    n_steps = trial.suggest_categorical("n_steps", [512, 1024, 2048, 4096, 8192])
-    batch_size = trial.suggest_categorical("batch_size", [32, 64, 128, 256, 512, 1024])
-    n_epochs = trial.suggest_int("n_epochs", 3, 20)
-    gamma = trial.suggest_float("gamma", 0.95, 0.9999, log=True)
-    gae_lambda = trial.suggest_float("gae_lambda", 0.9, 0.99)
-    clip_range = trial.suggest_float("clip_range", 0.1, 0.4)
-    ent_coef = trial.suggest_float("ent_coef", 1e-8, 0.1, log=True)
 
-    # Optional: Sample advanced parameters
-    # max_grad_norm = trial.suggest_float("max_grad_norm", 0.3, 1.0)
-    # vf_coef = trial.suggest_float("vf_coef", 0.1, 1.0)
+    # 1) Tune rollout length to keep total samples/update reasonable
+    #    N = n_steps * n_envs ~ 8k–32k (rough target)
+    # -------------------------
+    # horizon=100 -> nice to include multiples of 100, but SB3 supports any int
+    n_steps = trial.suggest_categorical("n_steps", [1024, 2048, 4096])
 
-    # Constraint: batch_size should be <= n_steps
-    if batch_size > n_steps:
-        # Return poor score for invalid configurations
-        return -float('inf')
+    # Total rollout samples per PPO update
+    rollout_size = n_steps * n_envs
+
+    # -------------------------
+    # 2) Derive batch_size via num_minibatches
+    # -------------------------
+    num_minibatches = trial.suggest_categorical("num_minibatches", [8, 16, 32])
+    batch_size = rollout_size // num_minibatches
+
+    # Enforce constraints:
+    # - batch_size must be >= 64 (avoid super noisy minibatches)
+    # - need at least 4 minibatches
+    # - batch_size must be > 0 and divide nicely (it will, by construction)
+    if batch_size < 64 or (rollout_size // batch_size) < 4:
+        return -float("inf")
+
+    # (Optional) keep batch_size in a reasonable cap if you find huge batches slow learning
+    # if batch_size > 4096:
+    #     return -float("inf")
+
+    # -------------------------
+    # 4) Sample PPO hyperparameters (tighter, better-behaved ranges)
+    # -------------------------
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
+
+    # Epochs: avoid very large values
+    n_epochs = trial.suggest_categorical("n_epochs", [2, 3, 5, 10])
+
+    # horizon=100: gamma near 0.99+ is usually appropriate
+    gamma = 0.995
+    gae_lambda = trial.suggest_float("gae_lambda", 0.92, 0.98)
+
+    # clip range: avoid very aggressive clipping most of the time
+    clip_range = 0.2
+
+    # entropy: avoid absurd extremes
+    ent_coef = trial.suggest_float("ent_coef", 1e-5, 3e-2, log=True)
+
+    # -------------------------
+    # 5) Add a couple high-leverage stability knobs
+    # -------------------------
+    vf_coef = 0.5
+    max_grad_norm = 0.5
+
+    # Optional: target_kl can prevent catastrophic updates (works well with pruning)
+    target_kl = trial.suggest_categorical("target_kl", [None, 0.01, 0.02, 0.05])
+
 
     try:
-        # Create trial-specific save path
+        # Trial-specific save path
         trial_save_path = f"{save_path}/trial_{trial.number}"
 
-        # Train model with sampled hyperparameters
         from maps_agents.rl.tuning.train_with_params import train_with_hyperparams
 
         model, eval_callback = train_with_hyperparams(
@@ -122,7 +148,7 @@ def objective(
             total_timesteps=n_timesteps,
             n_envs=n_envs,
             save_path=trial_save_path,
-            # Hyperparameters from Optuna
+            # Hyperparams
             learning_rate=learning_rate,
             n_steps=n_steps,
             batch_size=batch_size,
@@ -131,20 +157,22 @@ def objective(
             gae_lambda=gae_lambda,
             clip_range=clip_range,
             ent_coef=ent_coef,
-            # Optuna trial for pruning
-            trial=trial
+            vf_coef=vf_coef,
+            max_grad_norm=max_grad_norm,
+            target_kl=target_kl,
+            clip_range_vf=clip_range_vf,
+            # Trial for pruning
+            trial=trial,
         )
 
-        # Check if pruned
-        if eval_callback.is_pruned:
+        # Pruning check (kept from your original flow)
+        if getattr(eval_callback, "is_pruned", False):
             raise optuna.TrialPruned()
 
         # Final evaluation on test layouts
-        # Get test layouts for the variant
         from maps_agents.rl.train_agent import get_layouts_for_variant
         _, test_layouts = get_layouts_for_variant(training_layouts)
 
-        # Evaluate on test layouts
         from maps_agents.rl.tuning.evaluate import evaluate_on_layouts
         mean_reward, std_reward = evaluate_on_layouts(
             model=model,
@@ -153,22 +181,24 @@ def objective(
             host=host,
             port=port,
             difficulty=difficulty,
-            mode=mode
+            mode=mode,
         )
 
-        # Store additional metrics as user attributes
-        trial.set_user_attr("std_reward", std_reward)
-        trial.set_user_attr("n_envs", n_envs)
+        # Log attrs for analysis
+        trial.set_user_attr("std_reward", float(std_reward))
         trial.set_user_attr("training_layouts", training_layouts)
+        trial.set_user_attr("rollout_size", int(rollout_size))
+        trial.set_user_attr("num_minibatches", int(num_minibatches))
+        trial.set_user_attr("batch_size", int(batch_size))
+        trial.set_user_attr("n_envs", int(n_envs))
+        trial.set_user_attr("n_steps", int(n_steps))
 
         return float(mean_reward)
 
     except optuna.TrialPruned:
-        # Re-raise pruned trials as-is
         raise
     except Exception as e:
-        # Log full error details for debugging
         print(f"Trial {trial.number} failed with error: {e}")
         import traceback
         traceback.print_exc()
-        raise  # Re-raise to mark as failed, not pruned
+        raise

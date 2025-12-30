@@ -179,7 +179,7 @@ def make_env(host: str, port: str, difficulty: str = "easy", mode: str = "full",
 def train_agent(difficulty: str = "easy",
                 mode: str = "full",
                 total_timesteps: int = 100000,
-                n_envs: int = 1,
+                n_envs: int = 10,
                 save_path: str = "./src/maps_agents/rl/trained_models",
                 training_layouts: str = "all",
                 host: str = "localhost",
@@ -217,6 +217,8 @@ def train_agent(difficulty: str = "easy",
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
     else:
         env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42 + i, layouts=train_layouts, env_idx=i)
+                           for i in range(n_envs)])
+        env = SubprocVecEnv([make_env(host, port, difficulty, mode, seed=42 + i, layouts=train_layouts, env_idx=i)
                            for i in range(n_envs)])
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
 
@@ -356,7 +358,7 @@ def main():
         help="Game difficulty level"
     )
     parser.add_argument(
-        "--timesteps",
+        "--n-timesteps",
         type=int,
         default=2500000,
         help="Total timesteps for training"

@@ -42,44 +42,21 @@ dependencies = [
     "pyyaml>=5.4.0",
     "requests>=2.25.0",
     "tqdm>=4.60.0",
-]
-
-[project.optional-dependencies]
-rl = [
     "stable-baselines3>=2.0.0",
     "gymnasium>=0.28.0",
     "torch>=1.10.0",
     "matplotlib>=3.3.0",
     "optuna>=3.0.0",
     "optuna-dashboard>=0.10.0",
-]
-llm = [
     "llm-model-cost>=0.1.0",
-]
-eval = [
     "map-py>=0.1.0",
-]
-vlm = [
     "Pillow>=9.0.0",
-]
-dev = [
     "pytest>=7.0.0",
     "pytest-cov>=3.0.0",
     "black>=22.0.0",
     "flake8>=4.0.0",
     "mypy>=0.950",
     "ruff>=0.1.0",
-]
-all = [
-    "stable-baselines3>=2.0.0",
-    "gymnasium>=0.28.0",
-    "torch>=1.10.0",
-    "matplotlib>=3.3.0",
-    "optuna>=3.0.0",
-    "optuna-dashboard>=0.10.0",
-    "llm-model-cost>=0.1.0",
-    "map-py>=0.1.0",
-    "Pillow>=9.0.0",
 ]
 
 [project.urls]

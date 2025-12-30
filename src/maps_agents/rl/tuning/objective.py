@@ -49,10 +49,12 @@ def objective(
     batch_size = rollout_size // num_minibatches
 
     # Enforce constraints:
-    # - batch_size must be >= 64 (avoid super noisy minibatches)
+    # - batch_size should be reasonable (adaptive to n_envs)
     # - need at least 4 minibatches
-    # - batch_size must be > 0 and divide nicely (it will, by construction)
-    if batch_size < 64 or (rollout_size // batch_size) < 4:
+    # For small n_envs, allow smaller batch sizes (min 16)
+    # For large n_envs, enforce larger batch sizes (min 64)
+    min_batch_size = 16 if n_envs < 10 else 64
+    if batch_size < min_batch_size or (rollout_size // batch_size) < 4:
         return -float("inf")
 
     # (Optional) keep batch_size in a reasonable cap if you find huge batches slow learning
@@ -125,10 +127,11 @@ def objective(
             raise optuna.TrialPruned()
 
         # Use final evaluation results from callback
-        # (already evaluated on test_layouts with n_eval_episodes episodes)
-        if len(eval_callback.evaluations_results) > 0:
-            mean_reward = float(np.mean(eval_callback.evaluations_results[-1]))
-            std_reward = float(np.std(eval_callback.evaluations_results[-1]))
+        # EvalCallback always sets last_mean_reward when it evaluates
+        if eval_callback.last_mean_reward > -float("inf"):
+            mean_reward = float(eval_callback.last_mean_reward)
+            # Note: We don't have std_reward without evaluations_results, set to 0
+            std_reward = 0.0
         else:
             # Fallback if no evaluations were performed
             mean_reward = -float("inf")

@@ -4,6 +4,7 @@ Training function that accepts hyperparameters from Optuna.
 
 from typing import Optional, Tuple
 import os
+import numpy as np
 from optuna.trial import Trial
 from stable_baselines3 import PPO
 from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize, SubprocVecEnv
@@ -43,22 +44,25 @@ class TrialEvalCallback(EvalCallback):
         Called on every environment step.
         Reports intermediate values to Optuna and handles pruning.
         """
-        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
-            # Trigger evaluation
-            super()._on_step()
+        # Check if evaluation should happen (before calling parent)
+        should_eval = self.eval_freq > 0 and self.n_calls % self.eval_freq == 0
 
-            # Report mean reward to Optuna
-            if len(self.evaluations_results) > 0:
-                mean_reward = float(np.mean(self.evaluations_results[-1]))
-                self.trial.report(mean_reward, self.eval_idx)
-                self.eval_idx += 1
+        # Always call parent's _on_step to maintain state and perform evaluation
+        continue_training = super()._on_step()
 
-                # Check if trial should be pruned
-                if self.trial.should_prune():
-                    self.is_pruned = True
-                    return False  # Stop training
+        # Report to Optuna after evaluation (parent updates last_mean_reward)
+        if should_eval:
+            # Use last_mean_reward which is always set by EvalCallback
+            mean_reward = self.last_mean_reward
+            self.trial.report(mean_reward, self.eval_idx)
+            self.eval_idx += 1
 
-        return True
+            # Check if trial should be pruned
+            if self.trial.should_prune():
+                self.is_pruned = True
+                return False  # Stop training
+
+        return continue_training
         
 
 def train_with_hyperparams(
@@ -125,21 +129,32 @@ def train_with_hyperparams(
     eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False)
 
     # Create callback with Optuna trial for pruning
+    # Adaptive eval_freq: aim for ~10 evaluations throughout training
+    # eval_freq is in callback calls, not timesteps
+    # Callback is called n_steps times per PPO update (once per rollout step)
+    target_num_evals = 10
+    timesteps_per_eval = total_timesteps / target_num_evals
+    # Convert timesteps to callback calls: each callback represents n_envs timesteps
+    eval_freq_calls = max(int(timesteps_per_eval / n_envs), n_steps)
+
+    # Debug: print eval freq calculation
+    # print(f"[DEBUG] Eval freq: {eval_freq_calls} calls (~{timesteps_per_eval:.0f} timesteps per eval)")
+
     if trial is not None:
         eval_callback = TrialEvalCallback(
             eval_env=eval_env,
             trial=trial,
             n_eval_episodes=n_eval_episodes,
-            eval_freq=max(25000 // n_envs, 1),
-            deterministic=False,
-            verbose=0
+            eval_freq=eval_freq_calls,
+            deterministic=True,
+            verbose=0  # Quiet during tuning
         )
     else:
         eval_callback = EvalCallback(
             eval_env=eval_env,
             best_model_save_path=f"{save_path}/best_model",
             log_path=f"{save_path}/logs",
-            eval_freq=max(10000 // n_envs, 1),
+            eval_freq=eval_freq_calls,
             deterministic=False,
             n_eval_episodes=n_eval_episodes,
         )

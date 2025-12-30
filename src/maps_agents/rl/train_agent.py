@@ -169,7 +169,7 @@ def make_env(host: str, port: str, difficulty: str = "easy", mode: str = "full",
             observation_type="gym_simple" if mode == "simple" else "gym",  # Use simple or full gym format
             negative_reward_on_invalid_action=False if eval_mode else True,
             layout=selected_layout,  # Use selected layout instead of hardcoded "ribs"
-            new_seed_on_reset=True if (not eval_mode) else False,
+            new_seed_on_reset=False if eval_mode else True,
         )
         env = Monitor(env)
         env.reset(seed=seed)
@@ -213,18 +213,16 @@ def train_agent(difficulty: str = "easy",
 
     # Create vectorized environment
     if n_envs == 1:
-        env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42, layouts=train_layouts, env_idx=0)])
+        env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42, layouts=train_layouts, env_idx=i) for i in range(len(train_layouts))])
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
     else:
-        env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=42 + i, layouts=train_layouts, env_idx=i)
-                           for i in range(n_envs)])
         env = SubprocVecEnv([make_env(host, port, difficulty, mode, seed=42 + i, layouts=train_layouts, env_idx=i)
-                           for i in range(n_envs)])
+                             for i in range(n_envs)])
         env = VecNormalize(env, norm_obs=False, norm_reward=True)
 
     # Create evaluation environment (use first test layout for periodic eval during training)
     eval_env = DummyVecEnv([make_env(host, port, difficulty, mode, seed=123, eval_mode=True,
-                                     layouts=test_layouts, env_idx=0)])
+                                     layouts=test_layouts, env_idx=i) for i in range(len(test_layouts))])
     eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False)
 
     # Create callbacks
@@ -234,7 +232,7 @@ def train_agent(difficulty: str = "easy",
         log_path=f"{save_path}/logs",
         eval_freq=max(50000 // n_envs, 1),
         deterministic=False,
-        n_eval_episodes=5,
+        n_eval_episodes=len(test_layouts),
         render=False
     )
 
@@ -385,7 +383,7 @@ def main():
         "port": "3000",
         "difficulty": args.difficulty,
         "mode": args.mode,
-        "total_timesteps": args.timesteps,
+        "total_timesteps": args.n_timesteps,
         "n_envs": args.n_envs,
         "save_path": "./src/maps_agents/rl/trained_models",
         "training_layouts": args.training_layouts

@@ -82,7 +82,7 @@ def objective(
     #    N = n_steps * n_envs ~ 8k–32k (rough target)
     # -------------------------
     # horizon=100 -> nice to include multiples of 100, but SB3 supports any int
-    n_steps = trial.suggest_categorical("n_steps", [1024, 2048, 4096])
+    n_steps = trial.suggest_categorical("n_steps", [256, 512, 1024, 2048])
 
     # Total rollout samples per PPO update
     rollout_size = n_steps * n_envs
@@ -101,13 +101,13 @@ def objective(
         return -float("inf")
 
     # (Optional) keep batch_size in a reasonable cap if you find huge batches slow learning
-    # if batch_size > 4096:
-    #     return -float("inf")
+    if batch_size > 4096:
+        return -float("inf")
 
     # -------------------------
     # 4) Sample PPO hyperparameters (tighter, better-behaved ranges)
     # -------------------------
-    learning_rate = trial.suggest_float("learning_rate", 1e-5, 5e-4, log=True)
+    learning_rate = trial.suggest_float("learning_rate", 1e-5, 1e-3, log=True)
 
     # Epochs: avoid very large values
     n_epochs = trial.suggest_categorical("n_epochs", [2, 3, 5, 10])

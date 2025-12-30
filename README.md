@@ -52,10 +52,10 @@ Agents can be tuned a Bayesian hyperparameter optimization using Optuna [Akiba e
 
 ```bash
 # Train a simple mode agent
-python -m maps_agents.rl.train_agent --mode simple --timesteps 1000000
+python -m maps_agents.rl.train_agent --mode simple --n-timesteps 1000000
 
 # Train a full mode agent
-python -m maps_agents.rl.train_agent --mode full --timesteps 2000000 
+python -m maps_agents.rl.train_agent --mode full --n-timesteps 2000000 
 
 # Tune an agent
 python -m maps_agents.rl.tune_hyperparameters \

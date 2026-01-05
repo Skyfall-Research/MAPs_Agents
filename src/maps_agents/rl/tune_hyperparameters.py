@@ -55,7 +55,8 @@ def create_study(
 
     if sampler is None:
         # Tree-structured Parzen Estimator (best for RL)
-        sampler = TPESampler(n_startup_trials=10, multivariate=True)
+        # Note: multivariate=False used because objective has dynamic search space (constraint checks)
+        sampler = TPESampler(n_startup_trials=10, multivariate=False)
 
     study = optuna.create_study(
         study_name=study_name,

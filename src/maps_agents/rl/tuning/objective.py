@@ -126,10 +126,10 @@ def objective(
         if getattr(eval_callback, "is_pruned", False):
             raise optuna.TrialPruned()
 
-        # Use final evaluation results from callback
-        # EvalCallback always sets last_mean_reward when it evaluates
-        if eval_callback.last_mean_reward > -float("inf"):
-            mean_reward = float(eval_callback.last_mean_reward)
+        # Use BEST evaluation result achieved during training (not final)
+        # EvalCallback tracks best_mean_reward across all evaluations
+        if eval_callback.best_mean_reward > -float("inf"):
+            mean_reward = float(eval_callback.best_mean_reward)
             # Note: We don't have std_reward without evaluations_results, set to 0
             std_reward = 0.0
         else:

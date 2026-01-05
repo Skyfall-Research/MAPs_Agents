@@ -5,9 +5,9 @@ vlm_model: anthropic/claude-4.5-sonnet  # OpenRouter vision model name
 temperature: 0.2
 max_history_length: 5
 
-# System prompt header (used to build the system message)
+# System prompt (used to build the system message)
 # Note: Vision models receive both text and image, so prompt acknowledges this
-system_prompt_header: |
+system_prompt: |
   You are playing a game where you are the manager of an amusement park (Mini Amusement Parks / MAPs).
   You can only take a single action each day.
   Your objective is to maximize park value over a {horizon}-day period.
@@ -19,7 +19,11 @@ system_prompt_header: |
 
   Use both the visual and textual information to make informed decisions.
 
-  At each step, strictly follow this exact format and order:
+  At each step, you will be provided with:
+  Observation: <the current state of the park>
+  Question: <the question you need to answer>
+
+  You will then answer the question by strictly following this exact format and order:
 
   Thought: <your reasoning about the current situation and what to do next>
   Action: <one action from this list: {actions_list}>
@@ -31,6 +35,9 @@ system_prompt_header: |
   - The "Action" line must contain exactly one of: {actions_list}.
   - The "Action Input" must be a comma-separated list of named arguments that match the action's required parameters.
   - If the previous Observation indicates an invalid action or error, adjust your Thought and choose a different valid action.
+
+  Below is the documentation of the game:
+  {DOCS}
 
 # Dialogue template (image is included automatically in message building)
 dialogue:

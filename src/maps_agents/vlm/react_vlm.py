@@ -147,7 +147,7 @@ class ReactVLMAgent(AbstractAgent):
         *,
         horizon: int,
         difficulty: str,
-        config_path: str = "src/maps_agents/vlm/vlm_config.yaml",
+        config_path: Optional[str | os.PathLike] = None,
     ):
         """
         ReAct-style VLM agent for MAPs using OpenRouter.
@@ -164,6 +164,8 @@ class ReactVLMAgent(AbstractAgent):
             config_path: Path to vlm_config.yaml
         """
         # Load config
+        if config_path is None:
+            config_path = "src/maps_agents/vlm/vlm_config.yaml"
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
         self.config = config
@@ -174,8 +176,6 @@ class ReactVLMAgent(AbstractAgent):
         self.max_history_length = config['max_history_length']
 
         ResourceCost.register_custom_model("anthropic/claude-4.5-sonnet", 3, 15)
-
-        self.resource_cost = ResourceCost(model=self.model)
 
         super().__init__(name=f"ReactVLMAgent({self.model})")
 
@@ -188,18 +188,17 @@ class ReactVLMAgent(AbstractAgent):
         self.resource_cost = ResourceCost(model=self.model)
         self.prev_action = "N/A: No previous action."
 
-        # Build system prompt (same as ReactAgent)
-        self.system_prompt_template = (
-            f"{self.config['system_prompt_header']}\n\n"
-            f"Below is the documentation of the game:\n"
-            f"{GAMEPLAY_RULES}\n\n"
-            f"{GAMEPLAY_RULES_ACTIONS_ONLY.replace(r'{', r'{{').replace(r'}', r'}}')}"
-        )
+        # Build system prompt using template-based approach
         actions_list = ", ".join(ACTIONS_BY_DIFFICULTY[self.difficulty])
-        self.system_prompt = self.system_prompt_template
+        self.system_prompt = self.config['system_prompt']
+        self.system_prompt = self.system_prompt.replace("{DOCS}", GAMEPLAY_RULES)
         self.system_prompt = self.system_prompt.replace("{horizon}", str(self.horizon))
         self.system_prompt = self.system_prompt.replace("{difficulty}", self.difficulty)
         self.system_prompt = self.system_prompt.replace("{actions_list}", actions_list)
+        self.system_prompt_msg = {"role": "system", "content": self.system_prompt}
+
+        # Extract dialogue template from config
+        self.dialogue_template = self.config['dialogue'][0]['content']
 
     @staticmethod
     def get_agent(agent_config_path: Optional[str | os.PathLike], eval_config: EvalConfig) -> 'ReactVLMAgent':
@@ -219,20 +218,17 @@ class ReactVLMAgent(AbstractAgent):
         image_base64: str,
     ) -> Dict[str, Any]:
         """
-        Build a multimodal user message with text and image.
+        Build a multimodal user message with text and image using config template.
 
         Args:
             state_str: Current state observation string
             image_base64: Base64-encoded image
 
         Returns:
-            Message dict with multimodal content
+            Message dict with multimodal content (text + image)
         """
-        text_content = (
-            f"Observation: {state_str}\n"
-            f"Question: What is the best action I should take now to maximize park value?\n"
-            f"Thought:"
-        )
+        # Use dialogue template from config
+        text_content = self.dialogue_template.replace("{state_str}", state_str)
 
         return {
             "role": "user",
@@ -249,6 +245,19 @@ class ReactVLMAgent(AbstractAgent):
                 }
             ]
         }
+
+    def _build_text_only_user_message(self, state_str: str) -> Dict[str, str]:
+        """
+        Build text-only user message for history (no image).
+
+        Args:
+            state_str: Current state observation string
+
+        Returns:
+            Message dict with text-only content
+        """
+        text_content = self.dialogue_template.replace("{state_str}", state_str)
+        return {"role": "user", "content": text_content}
 
     def _build_assistant_response(self, vlm_output: str) -> Dict[str, str]:
         """Build assistant message dictionary."""
@@ -292,13 +301,14 @@ class ReactVLMAgent(AbstractAgent):
             state_str = f"Park State : {json.dumps(py_json)}"
 
         # Build messages
-        user_msg = self._build_user_message(state_str, image_base64)
-        self.message_history.append(user_msg)
         system_msg = {"role": "system", "content": self.system_prompt}
 
-        # Call VLM
+        # Build current user message with image (for API call only, not stored in history)
+        current_user_msg_with_image = self._build_user_message(state_str, image_base64)
+
+        # Call VLM with text-only history + current multimodal message
         vlm_output, token_usage = call_vlm_openrouter(
-            messages=[system_msg, *self.message_history],
+            messages=[system_msg, *self.message_history, current_user_msg_with_image],
             model=self.model,
             api_key=self.api_key,
             temperature=self.temperature,
@@ -306,11 +316,20 @@ class ReactVLMAgent(AbstractAgent):
         self.resource_cost += token_usage
 
         # Parse into "action_name(arg1=..., ...)"
-        # Reuse ReactAgent's parser
         action = ReactAgent.parse_react_output(vlm_output)
 
-        # Build history message for next step
+        # Append text-only version to history (no image)
+        text_only_user_msg = self._build_text_only_user_message(state_str)
+        self.message_history.append(text_only_user_msg)
         self.message_history.append(self._build_assistant_response(vlm_output))
+
+        # Debug output
+        # print(">>> system prompt: ", self.system_prompt)
+        # for msg in self.message_history:
+        #     role, content = msg['role'], msg['content']
+        #     print(">>> --------------------------------")
+        #     print(f">>> {role}: {content}")
+        # print(f"================================================")
 
         # * 2 because we have one user message and one assistant message per step
         if len(self.message_history) > (self.max_history_length * 2):
@@ -381,17 +400,17 @@ class ReactVLMAgent(AbstractAgent):
     @staticmethod
     def extract_only_action_name(action: str):
         """Extract action name from action string. Delegates to ReactAgent."""
-        from maps_agents.vlm.react import ReactAgent
+        from maps_agents.llm.react import ReactAgent
         return ReactAgent.extract_only_action_name(action)
 
     @staticmethod
     def parse_react_output(vlm_output: str, tag="") -> str:
         """Parse ReAct output to extract action. Delegates to ReactAgent."""
-        from maps_agents.vlm.react import ReactAgent
+        from maps_agents.llm.react import ReactAgent
         return ReactAgent.parse_react_output(vlm_output, tag)
 
     @staticmethod
     def parse_react_multi_output(vlm_output: str, max_proposals: int) -> List[str]:
         """Parse multi-proposal ReAct output. Delegates to ReactAgent."""
-        from maps_agents.vlm.react import ReactAgent
+        from maps_agents.llm.react import ReactAgent
         return ReactAgent.parse_react_multi_output(vlm_output, max_proposals)

@@ -414,3 +414,6 @@ class ReactVLMAgent(AbstractAgent):
         """Parse multi-proposal ReAct output. Delegates to ReactAgent."""
         from maps_agents.llm.react import ReactAgent
         return ReactAgent.parse_react_multi_output(vlm_output, max_proposals)
+
+
+get_agent = ReactVLMAgent.get_agent

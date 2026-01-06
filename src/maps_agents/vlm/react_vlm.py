@@ -1,27 +1,34 @@
-import requests
-import json
 import base64
 import io
-from typing import Callable, List, Dict, Any, Optional, Tuple
-import yaml
-import numpy as np
-from PIL import Image
+import json
 import os
+import random
+import time
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
-from map_py.shared_constants import GAMEPLAY_RULES, GAMEPLAY_RULES_ACTIONS_ONLY
+import numpy as np
+import requests
+import yaml
+from PIL import Image
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError,
+    HTTPError,
+    ReadTimeout,
+    RequestException,
+)
+
 from map_py.observations_and_actions.shared_constants import ACTIONS_BY_DIFFICULTY
+from map_py.shared_constants import GAMEPLAY_RULES, GAMEPLAY_RULES_ACTIONS_ONLY
 
 from maps_agents.eval import AbstractAgent
-from maps_agents.eval.state_interface import MapPydanticAndImageGameResponse
-from maps_agents.llm.react import ReactAgent
 from maps_agents.eval.resource_interface import Resource, ResourceCost
+from maps_agents.eval.state_interface import MapPydanticAndImageGameResponse
 from maps_agents.eval.utils import EvalConfig
+from maps_agents.llm.react import ReactAgent
 
-
-import base64, io
-from typing import Literal, Optional, Tuple
-import numpy as np
-from PIL import Image
+# Optional: create one session globally and reuse it across calls
+_SESSION = requests.Session()
 
 def encode_image_to_base64(
     image_array: np.ndarray,
@@ -90,55 +97,109 @@ def call_vlm_openrouter(
     messages: List[Dict[str, Any]],
     model: str,
     api_key: str,
-    temperature: float = 0.2
-) -> Tuple[str, ResourceCost]:
+    temperature: float = 0.2,
+    max_tokens: Optional[int] = None,
+    timeout: Tuple[float, float] = (10.0, 180.0),  # (connect, read)
+    max_retries: int = 4,
+    backoff_base_s: float = 0.8,
+    app_title: str = "MAPs Agents",
+    app_referer: Optional[str] = None,  # e.g. "https://maps.skyfall.ai"
+) -> Tuple[str, "ResourceCost"]:
     """
     Call OpenRouter's chat/completions endpoint with multimodal support.
-
-    Messages can contain either simple string content or structured content
-    with text and images.
-
-    Args:
-        messages: List of message dicts with structure:
-            {
-                "role": "system"|"user"|"assistant",
-                "content": str | [{"type": "text"|"image_url", ...}]
-            }
-        model: OpenRouter model name (e.g., "anthropic/claude-3.5-sonnet")
-        api_key: OpenRouter API key
-        temperature: Sampling temperature
-
-    Returns:
-        Tuple of (response_content: str, resource_cost: ResourceCost)
-
-    Raises:
-        requests.HTTPError: If the API call fails
     """
-    resp = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        },
-        timeout=120,  # Longer timeout for vision models
-    )
-    resp.raise_for_status()
 
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"]
-    usage = data.get("usage", {})
+    url = "https://openrouter.ai/api/v1/chat/completions"
 
-    token_usage = ResourceCost(model=model, costs={
-        Resource.TOKENS_IN: usage.get("prompt_tokens", 0),
-        Resource.TOKENS_OUT: usage.get("completion_tokens", 0),
-    })
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Title": app_title,
+    }
+    if app_referer:
+        headers["HTTP-Referer"] = app_referer
 
-    return content, token_usage
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+
+    last_exc: Optional[BaseException] = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = _SESSION.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
+
+            # If OpenRouter returns non-2xx, raise with context
+            try:
+                resp.raise_for_status()
+            except HTTPError as e:
+                # Include a small amount of body for debugging
+                body_snippet = ""
+                try:
+                    body_snippet = resp.text[:800]
+                except Exception:
+                    pass
+                raise HTTPError(
+                    f"{e} | status={resp.status_code} | body_snippet={body_snippet}"
+                ) from e
+
+            # Parse JSON defensively
+            try:
+                data = resp.json()
+            except json.JSONDecodeError as e:
+                text_snippet = resp.text[:800] if resp.text else ""
+                raise ValueError(
+                    f"OpenRouter returned non-JSON response. "
+                    f"status={resp.status_code} snippet={text_snippet}"
+                ) from e
+
+            # Defensive extraction
+            choices = data.get("choices")
+            if not choices:
+                raise ValueError(f"Missing choices in response: keys={list(data.keys())}")
+
+            message = choices[0].get("message", {})
+            content = message.get("content")
+            if content is None:
+                raise ValueError(f"Missing message.content in response: {message}")
+
+            usage = data.get("usage", {}) or {}
+
+            token_usage = ResourceCost(model=model, costs={
+                Resource.TOKENS_IN: int(usage.get("prompt_tokens", 0) or 0),
+                Resource.TOKENS_OUT: int(usage.get("completion_tokens", 0) or 0),
+            })
+
+            return content, token_usage
+
+        except (ChunkedEncodingError, ConnectionError, ReadTimeout) as e:
+            # Retryable network-ish failures
+            last_exc = e
+            if attempt == max_retries:
+                break
+
+            # Exponential backoff + jitter
+            sleep_s = backoff_base_s * (2 ** (attempt - 1))
+            sleep_s *= (0.8 + 0.4 * random.random())  # jitter in [0.8, 1.2]
+            time.sleep(sleep_s)
+
+        except RequestException as e:
+            # Other requests exceptions are often not retryable, but you can decide.
+            # I usually fail fast here.
+            raise
+
+    # If we exhausted retries:
+    assert last_exc is not None
+    raise last_exc
 
 
 class ReactVLMAgent(AbstractAgent):

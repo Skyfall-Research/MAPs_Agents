@@ -1,11 +1,12 @@
 # General agent settings
 verbose: true
 max_proposals: 1
-llm_model: gpt-5-nano   # or your OpenRouter model wrapper name
+llm_model: qwen/qwen3-vl-235b-a22b-instruct   # or your OpenRouter model wrapper name
 temperature: 0.2
 max_history_length: 5
 use_learnings: false
 generate_learnings: false
+use_placement_heuristic: true  # Replace x,y coordinates with BFS-based heuristic
 
 # System prompt header (used to build the system message)
 system_prompt: |

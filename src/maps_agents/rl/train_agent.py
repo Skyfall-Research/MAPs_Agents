@@ -12,12 +12,14 @@ import sys
 import re
 import argparse
 import numpy as np
+import json
+import glob
 from stable_baselines3 import PPO, A2C, DQN, SAC
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv, VecNormalize
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, BaseCallback
+from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback, BaseCallback, StopTrainingOnNoModelImprovement
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
-from typing import Callable
+from typing import Callable, Optional, Tuple
 
 # Add the parent directory to the path to import the environment
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,6 +49,64 @@ def get_layouts_for_variant(variant: str):
         return [variant], [variant]
     else:
         raise ValueError(f"Unknown training variant: {variant}")
+
+
+def load_best_hyperparameters(mode: str, difficulty: str, training_layouts: str,
+                               tuning_runs_dir: str = "./tuning_runs") -> Tuple[Optional[dict], Optional[str]]:
+    """
+    Load best hyperparameters from tuning runs based on mode, difficulty, and training layouts.
+
+    Args:
+        mode: "simple" or "full"
+        difficulty: "easy", "medium", or "hard"
+        training_layouts: Training layout variant (e.g., "all", "ribs", etc.)
+        tuning_runs_dir: Directory containing tuning run results
+
+    Returns:
+        Tuple of (hyperparameters dict, filename) or (None, None) if no matching config found
+    """
+    # Check if tuning_runs directory exists
+    if not os.path.exists(tuning_runs_dir):
+        return None, None
+
+    # Search for matching best_params JSON files
+    pattern = os.path.join(tuning_runs_dir, "best_params_*.json")
+    json_files = glob.glob(pattern)
+
+    if not json_files:
+        return None, None
+
+    matching_files = []
+    for json_file in json_files:
+        try:
+            with open(json_file, 'r') as f:
+                data = json.load(f)
+
+            # Check if mode, difficulty, and training_layouts match
+            if (data.get('mode') == mode and
+                data.get('difficulty') == difficulty and
+                data.get('training_layouts') == training_layouts):
+
+                # Extract timestamp from filename for sorting
+                # Format: best_params_ppo_tuning_all_simple_20260107_193642.json
+                filename = os.path.basename(json_file)
+                matching_files.append((json_file, filename, data))
+
+        except (json.JSONDecodeError, KeyError, IOError) as e:
+            print(f"Warning: Could not read {json_file}: {e}")
+            continue
+
+    if not matching_files:
+        return None, None
+
+    # Sort by filename (which includes timestamp) to get most recent
+    matching_files.sort(key=lambda x: x[1], reverse=True)
+
+    # Return the best_params from the most recent matching file
+    json_file, filename, data = matching_files[0]
+    best_params = data.get('best_params', {})
+
+    return best_params, filename
 
 
 class ActionDistributionCallback(BaseCallback):
@@ -183,7 +243,9 @@ def train_agent(difficulty: str = "easy",
                 save_path: str = "./src/maps_agents/rl/trained_models",
                 training_layouts: str = "all",
                 host: str = "localhost",
-                port: str = "3000"):
+                port: str = "3000",
+                early_stopping_patience: int = 10,
+                min_evals_before_stopping: int = 5):
     """
     Train an RL agent on the Theme Park Tycoon environment.
 
@@ -191,6 +253,10 @@ def train_agent(difficulty: str = "easy",
         mode: "simple" for simplified spaces (5 actions, vectors only),
               "full" for complete spaces (11 actions, grid + vectors)
         training_layouts: One of "all", "ribs", "the_islands", "zig_zag"
+        early_stopping_patience: Number of consecutive evaluations without a new best model before stopping.
+                                 Default is 10 (5M steps @ 500K eval freq, ~5% of 100M training). Set to 0 or negative to disable.
+        min_evals_before_stopping: Minimum number of evaluations before starting to count evaluations without improvement.
+                                   Default is 5 (2.5M steps @ 500K eval freq, prevents premature stopping).
     """
 
     # Set random seed for reproducibility
@@ -200,6 +266,61 @@ def train_agent(difficulty: str = "easy",
     train_layouts, test_layouts = get_layouts_for_variant(training_layouts)
     print(f"Training layouts: {training_layouts}")
     print(f"Testing layouts: {test_layouts}")
+
+    # Load tuned hyperparameters if available
+    tuned_params, params_filename = load_best_hyperparameters(mode, difficulty, training_layouts)
+
+    # Set default hyperparameters
+    learning_rate = 3e-4
+    n_steps = 256
+    batch_size = 500
+    n_epochs = 10
+    gae_lambda = 0.95
+    ent_coef = 0.01
+    target_kl = None
+    clip_range_vf = None
+    params_source = "defaults"
+
+    # Override with tuned hyperparameters if found
+    if tuned_params is not None:
+        print(f"\nLoading tuned hyperparameters from {params_filename}")
+        learning_rate = tuned_params.get('learning_rate', learning_rate)
+        n_steps = tuned_params.get('n_steps', n_steps)
+        n_epochs = tuned_params.get('n_epochs', n_epochs)
+        gae_lambda = tuned_params.get('gae_lambda', gae_lambda)
+        ent_coef = tuned_params.get('ent_coef', ent_coef)
+
+        # Calculate batch_size from num_minibatches if available
+        num_minibatches = tuned_params.get('num_minibatches')
+        if num_minibatches is not None:
+            batch_size = int((n_steps * n_envs) / num_minibatches)
+            # Validate batch_size
+            if batch_size < 16:
+                print(f"Warning: Calculated batch_size {batch_size} is too small, using 16")
+                batch_size = 16
+            elif batch_size > 4096:
+                print(f"Warning: Calculated batch_size {batch_size} is too large, using 4096")
+                batch_size = 4096
+
+        # Optional parameters (only set if non-null)
+        if 'target_kl' in tuned_params and tuned_params['target_kl'] is not None:
+            target_kl = tuned_params['target_kl']
+        if 'clip_range_vf' in tuned_params and tuned_params['clip_range_vf'] is not None:
+            clip_range_vf = tuned_params['clip_range_vf']
+
+        params_source = f"tuned from {params_filename}"
+
+        # Print loaded hyperparameters for transparency
+        print(f"  learning_rate: {learning_rate}")
+        print(f"  n_steps: {n_steps}")
+        print(f"  batch_size: {batch_size}")
+        print(f"  n_epochs: {n_epochs}")
+        print(f"  gae_lambda: {gae_lambda:.4f}")
+        print(f"  ent_coef: {ent_coef:.6f}")
+        print(f"  target_kl: {target_kl}")
+        print(f"  clip_range_vf: {clip_range_vf}")
+    else:
+        print("\nNo tuned hyperparameters found, using defaults")
 
     # Create save directory with variant-specific subdirectory
     # print(mode, difficulty, training_layouts)
@@ -225,43 +346,67 @@ def train_agent(difficulty: str = "easy",
                                      layouts=test_layouts, env_idx=i) for i in range(len(test_layouts))])
     eval_env = VecNormalize(eval_env, norm_obs=False, norm_reward=False)
 
-    # Create callbacks
+    # Create early stopping callback if patience is specified and positive
+    stop_callback = None
+    if early_stopping_patience is not None and early_stopping_patience > 0:
+        stop_callback = StopTrainingOnNoModelImprovement(
+            max_no_improvement_evals=early_stopping_patience,
+            min_evals=min_evals_before_stopping,
+            verbose=1
+        )
+        print(f"Early stopping enabled: max_no_improvement_evals={early_stopping_patience}, min_evals={min_evals_before_stopping}")
+    else:
+        print("Early stopping disabled - training will run for full duration")
+
+    # Create callbacks - StopTrainingOnNoModelImprovement must be passed to EvalCallback
     eval_callback = EvalCallback(
         eval_env,
         best_model_save_path=f"{save_path}/best_model",
         log_path=f"{save_path}/logs",
-        eval_freq=max(50000 // n_envs, 1),
+        eval_freq=max(500000 // n_envs, 1),
         deterministic=False,
         n_eval_episodes=len(test_layouts),
-        render=False
+        render=False,
+        callback_after_eval=stop_callback  # Pass stop_callback here
     )
+
+    callbacks = [eval_callback]
 
     # Initialize the agent
     print(f"Training with {mode} mode using {policy_class.__name__}")
-    model = PPO(
-        policy_class,  # Custom policy with hierarchical sampling
-        env,
-        verbose=1,
-        learning_rate=3e-4,
-        n_steps=256,
-        batch_size=500,
-        n_epochs=10,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_range=0.2,
-        ent_coef=0.01,
-        # target_kl=0.02,
-        tensorboard_log=f"{save_path}/tensorboard_logs",
-        policy_kwargs={
+
+    # Build PPO kwargs
+    ppo_kwargs = {
+        "policy": policy_class,
+        "env": env,
+        "verbose": 1,
+        "learning_rate": learning_rate,
+        "n_steps": n_steps,
+        "batch_size": batch_size,
+        "n_epochs": n_epochs,
+        "gamma": 0.99,
+        "gae_lambda": gae_lambda,
+        "clip_range": 0.2,
+        "ent_coef": ent_coef,
+        "tensorboard_log": f"{save_path}/tensorboard_logs",
+        "policy_kwargs": {
             "difficulty": difficulty,
         }
-    )
+    }
+
+    # Add optional parameters if specified
+    if target_kl is not None:
+        ppo_kwargs["target_kl"] = target_kl
+    if clip_range_vf is not None:
+        ppo_kwargs["clip_range_vf"] = clip_range_vf
+
+    model = PPO(**ppo_kwargs)
 
     # Train the agent
     print(f"Starting training with PPO agent for {total_timesteps} timesteps")
     model.learn(
         total_timesteps=total_timesteps,
-        callback=[eval_callback] #, checkpoint_callback, action_dist_callback]
+        callback=callbacks
     )
 
     # Save the final model
@@ -358,8 +503,8 @@ def main():
     parser.add_argument(
         "--n-timesteps",
         type=int,
-        default=2500000,
-        help="Total timesteps for training"
+        default=100000000,
+        help="Total timesteps for training (default: 100M)"
     )
     parser.add_argument(
         "--n-envs",
@@ -375,6 +520,18 @@ def main():
         help="Training variant: 'all' trains on all training layouts and tests on all test layouts, "
              "layout-specific options train and test on that single layout only"
     )
+    parser.add_argument(
+        "--early-stopping-patience",
+        type=int,
+        default=3,
+        help="Number of consecutive evaluations without a new best model before stopping (default: 10, equals 5M steps @ 500K eval freq). Set to 0 or negative to disable early stopping."
+    )
+    parser.add_argument(
+        "--min-evals-before-stopping",
+        type=int,
+        default=5,
+        help="Minimum number of evaluations before starting to count evaluations without improvement (default: 5, equals 2.5M steps @ 500K eval freq)"
+    )
     args = parser.parse_args()
 
     # Configuration
@@ -386,7 +543,9 @@ def main():
         "total_timesteps": args.n_timesteps,
         "n_envs": args.n_envs,
         "save_path": "./src/maps_agents/rl/trained_models",
-        "training_layouts": args.training_layouts
+        "training_layouts": args.training_layouts,
+        "early_stopping_patience": args.early_stopping_patience,
+        "min_evals_before_stopping": args.min_evals_before_stopping
     }
 
     print(f"\n{'='*60}")
@@ -396,6 +555,12 @@ def main():
     print(f"  Training variant: {config['training_layouts']}")
     print(f"  Total timesteps: {config['total_timesteps']:,}")
     print(f"  Parallel environments: {config['n_envs']}")
+    if config['early_stopping_patience'] is not None and config['early_stopping_patience'] > 0:
+        print(f"  Early stopping: enabled (max_no_improvement_evals={config['early_stopping_patience']}, min_evals={config['min_evals_before_stopping']})")
+    else:
+        print(f"  Early stopping: disabled")
+    print(f"\nHyperparameters will be loaded during training:")
+    print(f"  (Auto-loaded based on mode/difficulty/layouts if tuned params exist)")
     print(f"{'='*60}\n")
 
     # Check if game server is running
@@ -418,7 +583,9 @@ def main():
         total_timesteps=config["total_timesteps"],
         n_envs=config["n_envs"],
         save_path=config["save_path"],
-        training_layouts=config["training_layouts"]
+        training_layouts=config["training_layouts"],
+        early_stopping_patience=config["early_stopping_patience"],
+        min_evals_before_stopping=config["min_evals_before_stopping"]
     )
     
     print("Training script completed successfully!")

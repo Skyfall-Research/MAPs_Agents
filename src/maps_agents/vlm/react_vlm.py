@@ -235,8 +235,10 @@ class ReactVLMAgent(AbstractAgent):
         self.model = config['vlm_model']
         self.temperature = config['temperature']
         self.max_history_length = config['max_history_length']
+        self.use_placement_heuristic = config.get('use_placement_heuristic', False)
 
         ResourceCost.register_custom_model("anthropic/claude-4.5-sonnet", 3, 15)
+        ResourceCost.register_custom_model("qwen/qwen3-vl-235b-a22b-instruct", 0.2, 1.2)
 
         super().__init__(name=f"ReactVLMAgent({self.model})")
 
@@ -378,6 +380,10 @@ class ReactVLMAgent(AbstractAgent):
 
         # Parse into "action_name(arg1=..., ...)"
         action = ReactAgent.parse_react_output(vlm_output)
+
+        # Apply placement heuristic if enabled
+        if self.use_placement_heuristic and action:
+            action = ReactAgent.apply_placement_heuristic(action, py_json)
 
         # Append text-only version to history (no image)
         text_only_user_msg = self._build_text_only_user_message(state_str)

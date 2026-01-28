@@ -1,7 +1,11 @@
 import requests
 import json
 import os
+import re
+from collections import deque
 from typing import Callable, List, Dict, Any, Optional, Tuple
+
+import numpy as np
 import yaml
 
 from maps_agents.eval import AbstractAgent
@@ -74,6 +78,7 @@ class ReactAgent(AbstractAgent):
         self.model = config['llm_model']
         self.temperature = config['temperature']
         self.max_history_length = config['max_history_length']
+        self.use_placement_heuristic = config.get('use_placement_heuristic', False)
 
         if (config['generate_learnings'] or config['use_learnings']):
             self.learnings_path = learnings_path or os.path.join("src/maps_agents/llm/learnings", f"{self.model}_{self.difficulty}.txt")
@@ -86,6 +91,9 @@ class ReactAgent(AbstractAgent):
         elif config['use_learnings']:
             with open(self.learnings_path, "r") as f:
                 self.learnings = f.readlines()
+
+        ResourceCost.register_custom_model("anthropic/claude-4.5-sonnet", 3, 15)
+        ResourceCost.register_custom_model("qwen/qwen3-vl-235b-a22b-instruct", 0.2, 1.2)
 
         self.resource_cost = ResourceCost(model=self.model)
         self.prev_action = "N/A: No previous action."
@@ -174,6 +182,142 @@ class ReactAgent(AbstractAgent):
         LEARNINGS_FOOTER = "Thought:"
         return llm_output[llm_output.rfind(LEARNINGS_HEADER) + len(LEARNINGS_HEADER):llm_output.rfind(LEARNINGS_FOOTER)].strip()
 
+    @staticmethod
+    def get_neighbors(pos: Tuple[int, int], grid_size: int = 20) -> List[Tuple[int, int]]:
+        """Get valid neighboring positions (4-connected)."""
+        x, y = pos
+        neighbors = []
+        for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < grid_size and 0 <= ny < grid_size:
+                neighbors.append((nx, ny))
+        return neighbors
+
+    @staticmethod
+    def get_place_attraction_xy(entity_type: str, state: Dict[str, Any]) -> Tuple[int, int]:
+        """
+        Compute optimal x, y coordinates for placing a ride or shop using BFS heuristic.
+
+        Args:
+            entity_type: 'ride' or 'shop'
+            state: Park state dictionary from obs.model_dump()
+
+        Returns:
+            Tuple of (x, y) coordinates for placement
+        """
+        TOP = 5  # Top-N positions to consider
+
+        # Build grid: 0=empty, 1=path, 2=water, 3=ride, 4=shop, 5=entrance, 6=exit
+        grid = np.zeros((20, 20), dtype=int)
+
+        for terrain in state.get("terrain", []):
+            if terrain['type'] == 'path':
+                grid[terrain['x'], terrain['y']] = 1
+            elif terrain['type'] == 'water':
+                grid[terrain['x'], terrain['y']] = 2
+
+        for ride in state.get("rides", []):
+            grid[ride['x'], ride['y']] = 3
+
+        for shop in state.get("shops", []):
+            grid[shop['x'], shop['y']] = 4
+
+        entrance = state.get("entrance", {})
+        exit_pos = state.get("exit", {})
+
+        if entrance:
+            grid[entrance['x'], entrance['y']] = 5
+        if exit_pos:
+            grid[exit_pos['x'], exit_pos['y']] = 6
+
+        # BFS from entrance to find valid positions adjacent to paths
+        valid_options = []
+        entrance_pos = (entrance.get('x', 0), entrance.get('y', 0))
+        visited = set()
+        visited.add(entrance_pos)
+        queue = deque([entrance_pos])
+
+        while queue and len(valid_options) < TOP:
+            current = queue.popleft()
+            for neighbor in ReactAgent.get_neighbors(current):
+                # If neighbor is a path, add to queue and visited
+                if neighbor not in visited and grid[neighbor[0], neighbor[1]] == 1:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+                # If neighbor is empty, add to valid options (but not from entrance directly)
+                elif neighbor not in visited and grid[neighbor[0], neighbor[1]] == 0 and current != entrance_pos:
+                    visited.add(neighbor)
+                    valid_options.append(neighbor)
+
+        # Handle case where no valid positions found
+        if not valid_options:
+            return (entrance.get('x', 0), entrance.get('y', 0))
+
+        # Score positions: rides prefer water (+1), penalize empty (-1); shops opposite
+        if entity_type == 'ride':
+            scoring = {0: -1, 1: 0, 2: 1, 3: 0, 4: 0, 5: 0, 6: 0}
+        else:  # shop
+            scoring = {0: 1, 1: 0, 2: -1, 3: 0, 4: 0, 5: 0, 6: 0}
+
+        scores = {
+            option: sum([scoring[grid[n[0], n[1]]] for n in ReactAgent.get_neighbors(option)])
+            for option in valid_options
+        }
+        sorted_options = sorted(valid_options, key=lambda x: scores[x], reverse=True)
+        return sorted_options[0]
+
+    @staticmethod
+    def apply_placement_heuristic(action: str, state: Dict[str, Any]) -> str:
+        """
+        Replace coordinates in place/move actions with heuristic-computed values.
+
+        Args:
+            action: Action string like "place(x=5, y=10, type=\"ride\", ...)"
+            state: Park state dictionary from obs.model_dump()
+
+        Returns:
+            Modified action string with heuristic coordinates
+        """
+        if not action:
+            return action
+
+        # Extract action name (before the parenthesis)
+        action_lower = action.lower()
+
+        # Check if this is a place or move action
+        is_place = action_lower.startswith('place(')
+        is_move = action_lower.startswith('move(')
+
+        if not is_place and not is_move:
+            return action  # Not a place/move action
+
+        # Extract the type parameter to determine entity type (ride, shop, or staff)
+        type_match = re.search(r'type\s*=\s*["\']?(ride|shop|staff)["\']?', action_lower)
+        if not type_match:
+            return action  # Can't determine entity type
+
+        entity_type = type_match.group(1)
+
+        # Only apply heuristic for rides and shops, not staff
+        if entity_type not in ('ride', 'shop'):
+            return action
+
+        # Get heuristic coordinates
+        new_x, new_y = ReactAgent.get_place_attraction_xy(entity_type, state)
+
+        # Determine which coordinate keys to replace
+        if is_move:
+            # For move actions, replace new_x and new_y
+            action = re.sub(r'\bnew_x\s*=\s*\d+', f'new_x={new_x}', action)
+            action = re.sub(r'\bnew_y\s*=\s*\d+', f'new_y={new_y}', action)
+        else:
+            # For place actions, replace x and y (but not new_x/new_y)
+            # Use negative lookbehind to avoid matching new_x/new_y
+            action = re.sub(r'(?<!new_)\bx\s*=\s*\d+', f'x={new_x}', action)
+            action = re.sub(r'(?<!new_)\by\s*=\s*\d+', f'y={new_y}', action)
+
+        return action
+
     def react_step(self, obs: Any, info: Dict[str, Any], sandbox_steps_left: Optional[int] = None) -> str:
         """
         Single ReAct step:
@@ -217,6 +361,11 @@ class ReactAgent(AbstractAgent):
 
         # Parse into "action_name(arg1=..., ...)"
         action = ReactAgent.parse_react_output(llm_output)
+
+        # Apply placement heuristic if enabled
+        if self.use_placement_heuristic and action:
+            action = ReactAgent.apply_placement_heuristic(action, py_json)
+
         if self.config['generate_learnings']:
             learning = ReactAgent.extract_learnings(llm_output)
             self.learnings.append(learning)
@@ -228,12 +377,12 @@ class ReactAgent(AbstractAgent):
         self.message_history.append({"role": "assistant", "content": llm_output.strip()})
 
 
-        print(">>> system prompt: ", self.system_prompt)
-        for msg in self.message_history:
-            role, content = msg['role'], msg['content']
-            print(">>> --------------------------------")
-            print(f">>> {role}: {content}")
-        print(f"================================================")
+        # print(">>> system prompt: ", self.system_prompt)
+        # for msg in self.message_history:
+        #     role, content = msg['role'], msg['content']
+        #     print(">>> --------------------------------")
+        #     print(f">>> {role}: {content}")
+        # print(f"================================================")
 
         # * 2 because we have one user message and one assistant message per step
         if len(self.message_history) > (self.max_history_length * 2):

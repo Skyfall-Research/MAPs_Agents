@@ -4,6 +4,7 @@ max_proposals: 1
 vlm_model: anthropic/claude-4.5-sonnet  # OpenRouter vision model name
 temperature: 0.2
 max_history_length: 5
+use_placement_heuristic: false  # Replace x,y coordinates with BFS-based heuristic
 
 # System prompt (used to build the system message)
 # Note: Vision models receive both text and image, so prompt acknowledges this

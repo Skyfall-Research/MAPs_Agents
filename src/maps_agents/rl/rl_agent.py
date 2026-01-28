@@ -74,7 +74,7 @@ class RLAgent(AbstractAgent):
 
         # Load model
         if model_path is None:
-            model_path = os.path.join("./trained_models", f"{self.mode}_{self.difficulty}_{self.training_layouts}", "final_model.zip")
+            model_path = os.path.join("./trained_models", f"{self.mode}_{self.difficulty}_{self.training_layouts}", "best_model", "best_model.zip")
 
         if not os.path.exists(model_path):
             print(f"Model not found at {model_path}")
@@ -83,6 +83,8 @@ class RLAgent(AbstractAgent):
 
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model not found at {model_path}")
+
+        print(f"Loading model from {model_path}")
 
         self.model = PPO.load(model_path)
         self.model_path = model_path

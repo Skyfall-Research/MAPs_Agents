@@ -2,11 +2,20 @@ import requests
 import json
 import os
 import re
+import time
+import random
 from collections import deque
 from typing import Callable, List, Dict, Any, Optional, Tuple
 
 import numpy as np
 import yaml
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError,
+    HTTPError,
+    ReadTimeout,
+    RequestException,
+)
 
 from maps_agents.eval import AbstractAgent
 from maps_agents.eval.state_interface import MapPydanticGameResponse
@@ -15,38 +24,131 @@ from map_py.observations_and_actions.shared_constants import ACTIONS_BY_DIFFICUL
 from maps_agents.eval.resource_interface import Resource, ResourceCost
 from maps_agents.eval.utils import EvalConfig
 
+# Shared session for connection pooling
+_SESSION = requests.Session()
 
-def call_llm_openrouter(messages, model: str, api_key: str, temperature: float = 0.2) -> Tuple[str, ResourceCost]:
+
+def call_llm_openrouter(
+    messages,
+    model: str,
+    api_key: str,
+    temperature: float = 0.2,
+    timeout: Tuple[float, float] = (10.0, 180.0),  # (connect, read)
+    max_retries: int = 4,
+    backoff_base_s: float = 0.8,
+) -> Tuple[str, ResourceCost]:
     """
-    Thin wrapper around OpenRouter's chat/completions endpoint.
+    Call OpenRouter's chat/completions endpoint with retry logic.
     `messages` is a list of dicts: [{"role": "system"|"user"|"assistant", "content": "..."}]
-    
+
+    Args:
+        messages: List of message dicts
+        model: OpenRouter model name
+        api_key: OpenRouter API key
+        temperature: Sampling temperature
+        timeout: Tuple of (connect_timeout, read_timeout) in seconds
+        max_retries: Maximum number of retry attempts
+        backoff_base_s: Base backoff time in seconds for exponential backoff
+
     Returns:
-        Tuple of (content: str, token_usage: Dict[str, int]) where token_usage contains
-        'input_tokens' and 'output_tokens'
+        Tuple of (content: str, token_usage: ResourceCost)
     """
-    resp = requests.post(
-        "https://openrouter.ai/api/v1/chat/completions",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    content = data["choices"][0]["message"]["content"]
-    usage = data.get("usage", {})
-    token_usage = ResourceCost(model=model, costs={
-        Resource.TOKENS_IN: usage.get("prompt_tokens", 0),
-        Resource.TOKENS_OUT: usage.get("completion_tokens", 0),
-    })
-    return content, token_usage
+    url = "https://openrouter.ai/api/v1/chat/completions"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+    payload = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature,
+    }
+
+    last_exc: Optional[BaseException] = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            resp = _SESSION.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
+
+            # Check for server errors (5xx) which are retryable
+            if resp.status_code >= 500:
+                raise HTTPError(
+                    f"Server error {resp.status_code}: {resp.text[:500]}",
+                    response=resp
+                )
+
+            # Raise for other non-2xx errors (4xx are not retryable)
+            resp.raise_for_status()
+
+            # Parse JSON defensively
+            try:
+                data = resp.json()
+            except json.JSONDecodeError as e:
+                text_snippet = resp.text[:800] if resp.text else ""
+                raise ValueError(
+                    f"OpenRouter returned non-JSON response. "
+                    f"status={resp.status_code} snippet={text_snippet}"
+                ) from e
+
+            # Defensive extraction
+            choices = data.get("choices")
+            if not choices:
+                raise ValueError(f"Missing choices in response: keys={list(data.keys())}")
+
+            message = choices[0].get("message", {})
+            content = message.get("content")
+            if content is None:
+                raise ValueError(f"Missing message.content in response: {message}")
+
+            usage = data.get("usage", {}) or {}
+            token_usage = ResourceCost(model=model, costs={
+                Resource.TOKENS_IN: int(usage.get("prompt_tokens", 0) or 0),
+                Resource.TOKENS_OUT: int(usage.get("completion_tokens", 0) or 0),
+            })
+
+            return content, token_usage
+
+        except (ChunkedEncodingError, ConnectionError, ReadTimeout) as e:
+            # Retryable network failures
+            last_exc = e
+            if attempt == max_retries:
+                break
+
+            # Exponential backoff with jitter
+            sleep_s = backoff_base_s * (2 ** (attempt - 1))
+            sleep_s *= (0.8 + 0.4 * random.random())  # jitter in [0.8, 1.2]
+            print(f"Retry {attempt}/{max_retries} after {type(e).__name__}, sleeping {sleep_s:.1f}s")
+            time.sleep(sleep_s)
+
+        except HTTPError as e:
+            # Only retry 5xx errors
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code >= 500:
+                last_exc = e
+                if attempt == max_retries:
+                    break
+
+                sleep_s = backoff_base_s * (2 ** (attempt - 1))
+                sleep_s *= (0.8 + 0.4 * random.random())
+                print(f"Retry {attempt}/{max_retries} after HTTP {e.response.status_code}, sleeping {sleep_s:.1f}s")
+                time.sleep(sleep_s)
+            else:
+                # 4xx errors are not retryable
+                raise
+
+        except RequestException as e:
+            # Other requests exceptions - fail fast
+            raise
+
+    # Exhausted retries
+    assert last_exc is not None
+    raise last_exc
 
 class ReactAgent(AbstractAgent):
     def __init__(

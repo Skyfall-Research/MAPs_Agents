@@ -200,7 +200,7 @@ class ReactAgent(AbstractAgent):
 
         Args:
             entity_type: 'ride' or 'shop'
-            state: Park state dictionary from obs.model_dump()
+            state: Park state dictionary from obs.model_dump() (pydantic format)
 
         Returns:
             Tuple of (x, y) coordinates for placement
@@ -210,29 +210,43 @@ class ReactAgent(AbstractAgent):
         # Build grid: 0=empty, 1=path, 2=water, 3=ride, 4=shop, 5=entrance, 6=exit
         grid = np.zeros((20, 20), dtype=int)
 
-        for terrain in state.get("terrain", []):
-            if terrain['type'] == 'path':
-                grid[terrain['x'], terrain['y']] = 1
-            elif terrain['type'] == 'water':
-                grid[terrain['x'], terrain['y']] = 2
+        # Pydantic format: paths is a list of Path objects with x, y fields
+        for path in state.get("paths", []):
+            grid[path['x'], path['y']] = 1
 
-        for ride in state.get("rides", []):
+        # Pydantic format: waters is a list of Water objects with x, y fields
+        for water in state.get("waters", []):
+            grid[water['x'], water['y']] = 2
+
+        # Pydantic format: rides is a Rides object with ride_list containing Ride objects
+        rides_data = state.get("rides", {})
+        ride_list = rides_data.get("ride_list", []) if isinstance(rides_data, dict) else []
+        for ride in ride_list:
             grid[ride['x'], ride['y']] = 3
 
-        for shop in state.get("shops", []):
+        # Pydantic format: shops is a Shops object with shop_list containing Shop objects
+        shops_data = state.get("shops", {})
+        shop_list = shops_data.get("shop_list", []) if isinstance(shops_data, dict) else []
+        for shop in shop_list:
             grid[shop['x'], shop['y']] = 4
 
-        entrance = state.get("entrance", {})
-        exit_pos = state.get("exit", {})
+        # Pydantic format: entrance and exit are tuples (x, y), not dicts
+        entrance = state.get("entrance")
+        exit_pos = state.get("exit")
 
-        if entrance:
-            grid[entrance['x'], entrance['y']] = 5
-        if exit_pos:
-            grid[exit_pos['x'], exit_pos['y']] = 6
+        # Handle tuple format (x, y) from pydantic
+        if entrance and isinstance(entrance, (list, tuple)):
+            entrance_x, entrance_y = entrance[0], entrance[1]
+            grid[entrance_x, entrance_y] = 5
+        else:
+            entrance_x, entrance_y = 0, 0
+
+        if exit_pos and isinstance(exit_pos, (list, tuple)):
+            grid[exit_pos[0], exit_pos[1]] = 6
 
         # BFS from entrance to find valid positions adjacent to paths
         valid_options = []
-        entrance_pos = (entrance.get('x', 0), entrance.get('y', 0))
+        entrance_pos = (entrance_x, entrance_y)
         visited = set()
         visited.add(entrance_pos)
         queue = deque([entrance_pos])
@@ -251,7 +265,7 @@ class ReactAgent(AbstractAgent):
 
         # Handle case where no valid positions found
         if not valid_options:
-            return (entrance.get('x', 0), entrance.get('y', 0))
+            return (entrance_x, entrance_y)
 
         # Score positions: rides prefer water (+1), penalize empty (-1); shops opposite
         if entity_type == 'ride':
